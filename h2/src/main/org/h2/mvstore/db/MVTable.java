@@ -593,12 +593,16 @@ public class MVTable extends TableBase {
         Store store = session.getDatabase().getMvStore();
 
         int bufferSize = database.getMaxMemoryRows() / 2;
-        ArrayList<Row> buffer = new ArrayList<>(bufferSize);
+        // lazy allocate this, in case there are no rows
+        ArrayList<Row> buffer = null;
         String n = getName() + ":" + index.getName();
         int t = MathUtils.convertLongToInt(total);
         ArrayList<String> bufferNames = New.arrayList();
         while (cursor.next()) {
             Row row = cursor.get();
+            if (buffer == null) {
+                buffer = new ArrayList<>(bufferSize);
+            }
             buffer.add(row);
             database.setProgress(DatabaseEventListener.STATE_CREATE_INDEX, n,
                     MathUtils.convertLongToInt(i++), t);
@@ -611,14 +615,18 @@ public class MVTable extends TableBase {
             }
             remaining--;
         }
-        sortRows(buffer, index);
+        if (buffer != null) {
+            sortRows(buffer, index);
+        }
         if (!bufferNames.isEmpty()) {
             String mapName = store.nextTemporaryMapName();
-            index.addRowsToBuffer(buffer, mapName);
+            index.addRowsToBuffer(buffer == null ? Collections.<Row>emptyList() : buffer, mapName);
             bufferNames.add(mapName);
-            buffer.clear();
+            if (buffer != null) {
+                buffer.clear();
+            }
             index.addBufferedRows(bufferNames);
-        } else {
+        } else if (buffer != null) {
             addRowsToIndex(session, buffer, index);
         }
         if (SysProperties.CHECK && remaining != 0) {
